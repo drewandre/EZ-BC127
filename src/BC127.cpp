@@ -17,52 +17,54 @@ BC127::~BC127() {}
 
 void BC127::enable()
 {
-    Serial.print("Setting command pin (" + String(_commandPin) + ") to OUTPUT\r");
-    pinMode(_commandPin, OUTPUT);
-    Serial.println("Setting GPIO 0 pin (" + String(_gpioZero) + ") to OUTPUT");
-    pinMode(_gpioZero, OUTPUT);
-    // digitalWrite(_gpioZero, HIGH); // HIGH: RESTORE BC127 ON STARTUP
+#if DEBUG_BC127
+    Serial.print("BC127 | Setting command pin (" + String(_commandPin) + ") to OUTPUT\r");
+    Serial.print("BC127 | Setting GPIO 0 pin (" + String(_gpioZero) + ") to OUTPUT\r");
+    Serial.print("BC127 | Initializing BC127 serial at " + String(_serialBaud) + '\r');
+#endif
 
-    Serial.println("Initializing " + String(_deviceName) + " serial at " + String(_serialBaud));
+    pinMode(_commandPin, OUTPUT);
+    pinMode(_gpioZero, OUTPUT);
     _serialPort->begin(_serialBaud);
 
-    reset();
-
-    disableGPIOControl();
-    getGPIOConfig();
-    resetPIO4();
+    restore();
+    // setUARTConfig(_serialBaud);
 
     getName();
-
     setName(_deviceName, false);
     setShortName(_deviceName, false);
 
-    setMaxNumOfReconnectionAttempts(255, false);
-    // setUARTConfig();
-    // getUARTConfig();
-
-    disableiOSBatteryIndicator();
-    // disableAdvertisingOnStartup();
-
-    enableConnectableAndDiscoverable();
-
-    enableBLEAdvertising();
-    enableAutoConn(false);
-    enableAutoData(false);
     getBLEConfig();
+
+    disableGPIOControl();
+    disableiOSBatteryIndicator();
+
+    resetPIO4();
+
     enableHDAudio();
 
     write();
+    reset();
+
+    enableConnectableAndDiscoverable();
+    enableBLEAdvertising();
+
+    enableAutoConn(false);
+    enableAutoData(false);
+
+#ifdef DEBUG_BC127
+    Serial.println("\rBC127 ready!");
+#endif
 }
 
 BC127::opResult BC127::restore()
 {
 #if DEBUG_BC127
-    Serial.println("Restoring BC127...\n");
+    Serial.println("BC127 | CMD RESTORE");
 #endif
 
-    String buffer = "";
-    String EOL = String("Ready\r");
+    static String buffer = "";
+    static String EOL = String("Ready\r");
 
     _serialPort->print("RESTORE");
     _serialPort->print("\r");
@@ -72,18 +74,26 @@ BC127::opResult BC127::restore()
     while (!_serialPort->available())
     {
         Particle.process();
-        if (millis() - startingMillis > TIMEOUT_DELAY)
+        if (millis() - startingMillis > TIMEOUT_DELAY) {
+        #if DEBUG_BC127
+            Serial.print(commandResult(TIMEOUT_ERROR));
+        #endif
             return TIMEOUT_ERROR;
+        }
     }
+    startingMillis = millis();
 
     buffer.concat(char(_serialPort->read()));
 
-    startingMillis = millis();
     while (!buffer.endsWith(EOL))
     {
         Particle.process();
-        if (millis() - startingMillis > TIMEOUT_DELAY)
+        if (millis() - startingMillis > TIMEOUT_DELAY) {
+        #if DEBUG_BC127
+            Serial.print(commandResult(TIMEOUT_ERROR));
+        #endif
             return TIMEOUT_ERROR;
+        }
 
         if (_serialPort->available())
         {
@@ -94,6 +104,9 @@ BC127::opResult BC127::restore()
 
     if (buffer.startsWith("Sierra"))
     {
+    #if DEBUG_BC127
+        Serial.print(buffer + '\r');
+    #endif
         buffer = "";
         return SUCCESS;
     }
@@ -102,41 +115,55 @@ BC127::opResult BC127::restore()
     {
         static opResult error = evaluateError(buffer.substring(6));
         buffer = "";
+    #if DEBUG_BC127
+        Serial.print(commandResult(error));
+    #endif
         return error;
     }
     buffer = "";
+#if DEBUG_BC127
+    Serial.print(commandResult(MODULE_ERROR));
+#endif
     return MODULE_ERROR;
 }
 
 BC127::opResult BC127::reset()
 {
 #if DEBUG_BC127
-    Serial.println("Resetting BC127...\n");
+    Serial.println("BC127 | CMD RESET");
 #endif
 
-    String buffer = "";
-    String EOL = String("Ready\r");
+    static String buffer = "";
+    static String EOL = String("Ready\r");
 
-    _serialPort->print("RESET");
-    _serialPort->print("\r");
+    _serialPort->print("RESET\r");
     _serialPort->flush();
 
     static unsigned long startingMillis = millis();
     while (!_serialPort->available())
     {
         Particle.process();
-        if (millis() - startingMillis > TIMEOUT_DELAY)
+        if (millis() - startingMillis > TIMEOUT_DELAY) {
+        #if DEBUG_BC127
+            Serial.print(commandResult(TIMEOUT_ERROR));
+        #endif
             return TIMEOUT_ERROR;
+        }
+
     }
+    startingMillis = millis();
 
     buffer.concat(char(_serialPort->read()));
 
-    startingMillis = millis();
     while (!buffer.endsWith(EOL))
     {
         Particle.process();
-        if (millis() - startingMillis > TIMEOUT_DELAY)
+        if (millis() - startingMillis > TIMEOUT_DELAY) {
+        #if DEBUG_BC127
+            Serial.print(commandResult(TIMEOUT_ERROR));
+        #endif
             return TIMEOUT_ERROR;
+        }
 
         if (_serialPort->available())
         {
@@ -144,9 +171,12 @@ BC127::opResult BC127::reset()
             buffer.concat(char(_serialPort->read()));
         }
     }
-
+    
     if (buffer.startsWith("Sierra"))
     {
+    #if DEBUG_BC127
+        Serial.print(buffer + '\r');
+    #endif
         buffer = "";
         return SUCCESS;
     }
@@ -155,8 +185,14 @@ BC127::opResult BC127::reset()
     {
         static opResult error = evaluateError(buffer.substring(6));
         buffer = "";
+    #if DEBUG_BC127
+        Serial.print(commandResult(error));
+    #endif
         return error;
     }
     buffer = "";
+#if DEBUG_BC127
+    Serial.print(commandResult(MODULE_ERROR));
+#endif
     return MODULE_ERROR;
 }

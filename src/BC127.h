@@ -6,9 +6,6 @@
 #define TIMEOUT_DELAY 2000
 #define DEFAULT_SERIAL_PORT &Serial1
 #define DEFAULT_SERIAL_BAUD_RATE 9600
-// #define AUTOCONN "0"
-// #define AUTO_DATA "ON ON" // "ON ON" for auto connection to first BLE profile
-// #define BT_STATE "ON ON"  // "ON ON" for auto connection to first BLE profile
 
 #define DEBUG_BC127 true
 
@@ -143,6 +140,4 @@ private:
   int _commandPin = 3;
   int _gpioZero = 1;
   String _deviceName = "BC127";
-
-  opResult knownStart();
 };
