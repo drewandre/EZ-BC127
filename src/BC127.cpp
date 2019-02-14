@@ -1,198 +1,252 @@
 #include "BC127.h"
 
-BC127::BC127(int commandPin,
-             int gpioZero,
-             USARTSerial *serial,
-             int serialBaud,
-             String deviceName)
+BC127::BC127(int          commandPin,
+             int          connectionIndicatorPin,
+             int          eventBitmaskPin,
+             USARTSerial *serialPort,
+             int          serialBaud,
+             String       deviceName)
 {
-    _commandPin = commandPin;
-    _gpioZero = gpioZero;
-    _deviceName = deviceName;
-    _serialPort = serial;
-    _serialBaud = serialBaud;
+  _commandPin             = commandPin;
+  _connectionIndicatorPin = connectionIndicatorPin;
+  _eventBitmaskPin        = eventBitmaskPin;
+  _serialPort             = serialPort;
+  _serialBaud             = serialBaud;
+  _deviceName             = deviceName;
+
+  _serialPort->begin(_serialBaud);
+
+  pinMode(_commandPin,             OUTPUT);
+  pinMode(_connectionIndicatorPin, INPUT_PULLDOWN);
+  pinMode(_eventBitmaskPin,        INPUT);
+
+  digitalWrite(_commandPin, LOW);
+
+  // Photon interrupt docs:
+  // https://docs.particle.io/reference/device-os/firmware/photon/#interrupts
+  // attachInterrupt(_connectionIndicatorPin,
+  // &BC127::handleBC127DisconnectionEvent, this, RISING); // FALLING
+  attachInterrupt(_connectionIndicatorPin,
+                  &BC127::handleBC127ConnectionEvent,
+                  this,
+                  CHANGE); // RISING
+  attachInterrupt(_eventBitmaskPin,
+                  &BC127::handleBC127EventBitmaskEvent,
+                  this,
+                  CHANGE);
 }
 
 BC127::~BC127() {}
 
 void BC127::enable()
 {
-#if DEBUG_BC127
-    Serial.print("BC127 | Setting command pin (" + String(_commandPin) + ") to OUTPUT\r");
-    Serial.print("BC127 | Setting GPIO 0 pin (" + String(_gpioZero) + ") to OUTPUT\r");
-    Serial.print("BC127 | Initializing BC127 serial at " + String(_serialBaud) + '\r');
-#endif
+  enterCommandMode();
 
-    pinMode(_commandPin, OUTPUT);
-    pinMode(_gpioZero, OUTPUT);
-    _serialPort->begin(_serialBaud);
+  restore();
 
-    restore();
-    // setUARTConfig(_serialBaud);
+  setUARTConfig();
+  disableGPIOControl();
 
-    getName();
-    setName(_deviceName, false);
-    setShortName(_deviceName, false);
+  setName(_deviceName, false);
+  setShortName(_deviceName, false);
 
-    getBLEConfig();
+  getBLEConfig();
 
-    disableGPIOControl();
-    disableiOSBatteryIndicator();
+  disableiOSBatteryIndicator();
+  resetPIO4();
+  enableHDAudio();
+  setVolConfig();
+  setCodType();
 
-    resetPIO4();
+  write();
+  reset();
 
-    enableHDAudio();
+  getName();
 
-    write();
-    reset();
+  enableConnectableAndDiscoverable();
+  enableBLEAdvertising();
 
-    enableConnectableAndDiscoverable();
-    enableBLEAdvertising();
-
-    enableAutoConn(false);
-    enableAutoData(false);
+  // enableAutoConn(false);
+  enableAutoData(false);
 
 #ifdef DEBUG_BC127
-    Serial.println("\rBC127 ready!");
+  Serial.println("\rBC127 ready!");
 #endif
 }
 
 BC127::opResult BC127::restore()
 {
 #if DEBUG_BC127
-    Serial.println("BC127 | CMD RESTORE");
+  Serial.println("BC127 | CMD RESTORE");
 #endif
 
-    static String buffer = "";
-    static String EOL = String("Ready\r");
+  static String buffer = "";
+  static String EOL    = String("Ready\r");
 
-    _serialPort->print("RESTORE");
-    _serialPort->print("\r");
-    _serialPort->flush();
+  enterCommandMode();
 
-    static unsigned long startingMillis = millis();
-    while (!_serialPort->available())
+  _serialPort->print("RESTORE\r");
+  _serialPort->flush();
+
+  static unsigned long startingMillis = millis();
+
+  while (!_serialPort->available())
+  {
+    Particle.process();
+
+    if (millis() - startingMillis > COMMAND_TIMEOUT_DELAY)
     {
-        Particle.process();
-        if (millis() - startingMillis > TIMEOUT_DELAY) {
-        #if DEBUG_BC127
-            Serial.print(commandResult(TIMEOUT_ERROR));
-        #endif
-            return TIMEOUT_ERROR;
-        }
+#if DEBUG_BC127
+      Serial.print(convertCommandResultToString(TIMEOUT_ERROR));
+#endif
+      return TIMEOUT_ERROR;
     }
-    startingMillis = millis();
+  }
+  startingMillis = millis();
 
-    buffer.concat(char(_serialPort->read()));
+  buffer.concat(char(_serialPort->read()));
 
-    while (!buffer.endsWith(EOL))
+  while (!buffer.endsWith(EOL))
+  {
+    Particle.process();
+
+    if (millis() - startingMillis > COMMAND_TIMEOUT_DELAY)
     {
-        Particle.process();
-        if (millis() - startingMillis > TIMEOUT_DELAY) {
-        #if DEBUG_BC127
-            Serial.print(commandResult(TIMEOUT_ERROR));
-        #endif
-            return TIMEOUT_ERROR;
-        }
-
-        if (_serialPort->available())
-        {
-            startingMillis = millis();
-            buffer.concat(char(_serialPort->read()));
-        }
-    }
-
-    if (buffer.startsWith("Sierra"))
-    {
-    #if DEBUG_BC127
-        Serial.print(buffer + '\r');
-    #endif
-        buffer = "";
-        return SUCCESS;
+#if DEBUG_BC127
+      Serial.print(convertCommandResultToString(TIMEOUT_ERROR));
+#endif
+      return TIMEOUT_ERROR;
     }
 
-    if (buffer.startsWith("ER"))
+    if (_serialPort->available())
     {
-        static opResult error = evaluateError(buffer.substring(6));
-        buffer = "";
-    #if DEBUG_BC127
-        Serial.print(commandResult(error));
-    #endif
-        return error;
+      startingMillis = millis();
+      buffer.concat(char(_serialPort->read()));
     }
+  }
+
+  if (buffer.startsWith("Sierra"))
+  {
+#if DEBUG_BC127
+    Serial.print(buffer + '\r');
+#endif
+    buffer = "";
+
+    // _inDataMode = false;
+    return SUCCESS;
+  }
+
+  if (buffer.startsWith("ER"))
+  {
+    static opResult error = evaluateError(buffer.substring(6));
     buffer = "";
 #if DEBUG_BC127
-    Serial.print(commandResult(MODULE_ERROR));
+    Serial.print(convertCommandResultToString(error));
 #endif
-    return MODULE_ERROR;
+    return error;
+  }
+  buffer = "";
+#if DEBUG_BC127
+  Serial.print(convertCommandResultToString(MODULE_ERROR));
+#endif
+  return MODULE_ERROR;
 }
 
 BC127::opResult BC127::reset()
 {
 #if DEBUG_BC127
-    Serial.println("BC127 | CMD RESET");
+  Serial.println("BC127 | CMD RESET");
 #endif
 
-    static String buffer = "";
-    static String EOL = String("Ready\r");
+  static String buffer = "";
+  static String EOL    = String("Ready\r");
 
-    _serialPort->print("RESET\r");
-    _serialPort->flush();
+  enterCommandMode();
 
-    static unsigned long startingMillis = millis();
-    while (!_serialPort->available())
+  _serialPort->print("RESET\r");
+  _serialPort->flush();
+
+  static unsigned long startingMillis = millis();
+
+  while (!_serialPort->available())
+  {
+    Particle.process();
+
+    if (millis() - startingMillis > COMMAND_TIMEOUT_DELAY)
     {
-        Particle.process();
-        if (millis() - startingMillis > TIMEOUT_DELAY) {
-        #if DEBUG_BC127
-            Serial.print(commandResult(TIMEOUT_ERROR));
-        #endif
-            return TIMEOUT_ERROR;
-        }
-
+#if DEBUG_BC127
+      Serial.print(convertCommandResultToString(TIMEOUT_ERROR));
+#endif
+      return TIMEOUT_ERROR;
     }
-    startingMillis = millis();
+  }
+  startingMillis = millis();
 
-    buffer.concat(char(_serialPort->read()));
+  buffer.concat(char(_serialPort->read()));
 
-    while (!buffer.endsWith(EOL))
+  while (!buffer.endsWith(EOL))
+  {
+    Particle.process();
+
+    if (millis() - startingMillis > COMMAND_TIMEOUT_DELAY)
     {
-        Particle.process();
-        if (millis() - startingMillis > TIMEOUT_DELAY) {
-        #if DEBUG_BC127
-            Serial.print(commandResult(TIMEOUT_ERROR));
-        #endif
-            return TIMEOUT_ERROR;
-        }
-
-        if (_serialPort->available())
-        {
-            startingMillis = millis();
-            buffer.concat(char(_serialPort->read()));
-        }
-    }
-    
-    if (buffer.startsWith("Sierra"))
-    {
-    #if DEBUG_BC127
-        Serial.print(buffer + '\r');
-    #endif
-        buffer = "";
-        return SUCCESS;
+#if DEBUG_BC127
+      Serial.print(convertCommandResultToString(TIMEOUT_ERROR));
+#endif
+      return TIMEOUT_ERROR;
     }
 
-    if (buffer.startsWith("ER"))
+    if (_serialPort->available())
     {
-        static opResult error = evaluateError(buffer.substring(6));
-        buffer = "";
-    #if DEBUG_BC127
-        Serial.print(commandResult(error));
-    #endif
-        return error;
+      startingMillis = millis();
+      buffer.concat(char(_serialPort->read()));
     }
+  }
+
+  if (buffer.startsWith("Sierra"))
+  {
+#if DEBUG_BC127
+    Serial.print(buffer + '\r');
+#endif
+    buffer = "";
+
+    // _inDataMode = false;
+    return SUCCESS;
+  }
+
+  if (buffer.startsWith("ER"))
+  {
+    static opResult error = evaluateError(buffer.substring(6));
     buffer = "";
 #if DEBUG_BC127
-    Serial.print(commandResult(MODULE_ERROR));
+    Serial.print(convertCommandResultToString(error));
 #endif
-    return MODULE_ERROR;
+    return error;
+  }
+  buffer = "";
+#if DEBUG_BC127
+  Serial.print(convertCommandResultToString(MODULE_ERROR));
+#endif
+  return MODULE_ERROR;
+}
+
+void BC127::handleBC127ConnectionEvent()
+{
+  // Serial.println("BC127 | Connection event!");
+  // enterCommandMode();
+  // Serial.println("BC127 | Connnection event: " +
+  // convertCommandResultToString(status()));
+}
+
+void BC127::handleBC127DisconnectionEvent()
+{
+  // Serial.println("BC127 | Disconnnection event!");
+  // enterCommandMode();
+  // Serial.println("BC127 | Discnnnection event: " +
+  // convertCommandResultToString(status()));
+}
+
+void BC127::handleBC127EventBitmaskEvent()
+{
+  // Serial.println("BC127 | Event bitmask event occured");
 }

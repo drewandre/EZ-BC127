@@ -6,11 +6,11 @@
 BC127 bC127;
 
 void setup() {
-    // Call functions on initialized library objects that require hardware
-    bC127.begin();
+  // Call functions on initialized library objects that require hardware
+  bC127.begin();
 }
 
 void loop() {
-    // Use the library's initialized objects and functions
-    bC127.process();
+  // Use the library's initialized objects and functions
+  bC127.process();
 }

@@ -3,15 +3,23 @@
 // This will load the definition for common Particle variable types
 #include "Particle.h"
 
-#define TIMEOUT_DELAY 2000
+#define COMMAND_TIMEOUT_DELAY 2000
+
+#define BC127_NAME "Palette"
+#define DEFAULT_CONNECTION_INDICATOR_PIN D2
+#define DEFAULT_EVENT_BITMASK_PIN D3
+#define DEFAULT_COMMAND_PIN D4
+#define CONNECTION_INDICATOR_PIN D4
 #define DEFAULT_SERIAL_PORT &Serial1
 #define DEFAULT_SERIAL_BAUD_RATE 9600
+#define DEFAULT_CMD_TO_VALUE 21
+#define DEFAULT_COD_TYPE "200428"
 
 #define DEBUG_BC127 true
 
-class BC127
-{
+class BC127 {
 public:
+
   enum connType
   {
     SPP,
@@ -65,79 +73,83 @@ public:
     STOP
   };
 
-  BC127(int commandPin,
-        int gpioZero,
-        USARTSerial *_serialPort,
-        int _serialBaud,
-        String deviceName);
+  BC127(int          commandPin,
+        int          connectionIndicatorPin,
+        int          eventBitmaskPin,
+        USARTSerial *serialPort,
+        int          serialBaud,
+        String       deviceName);
 
   ~BC127();
 
-  void enable(void);
+  void     enable(void);
 
-  void enterCommandMode(void);
-  void exitCommandMode(void);
+  void     enterCommandMode(void);
+  void     exitCommandMode(void);
 
-  String commandResult(int result);
-  opResult evaluateError(String errorCode);
+  void     handleBC127ConnectionEvent();
+  void     handleBC127DisconnectionEvent();
+  void     handleBC127EventBitmaskEvent();
 
-  String getGPIOConfig(void);
-  String getBLEConfig(void);
-  String getUARTConfig(void);
-  String getName();
-
-  opResult disableGPIOControl(void);
-  opResult resetPIO4(void);
-  opResult enableGPIOControl(void);
-  opResult disableAdvertising(void);
-  opResult disableAdvertisingOnStartup(void);
-  opResult enableConnectableAndDiscoverable(void);
-  opResult enableBLEAdvertising(void);
-  opResult disableiOSBatteryIndicator(void);
-  opResult enableAutoData(bool shouldReboot);
-  opResult disableAutoData(bool shouldReboot);
-  opResult enableAutoConn(bool shouldReboot);
-  opResult disableAutoConn(bool shouldReboot);
-  opResult enableHDAudio(void);
-
-  opResult setName(String name, bool shouldReboot);
-  opResult setShortName(String name, bool shouldReboot);
-  opResult setMaxNumOfReconnectionAttempts(int maxNum, bool shouldReboot);
-  opResult setUARTConfig(int baudRate);
-
-  opResult reset(void);
-  opResult restore(void);
-  opResult write(void);
-  opResult inquiry(int timeout);
-  opResult connect(char index,
-                   connType connection);
-
-  // opResult getAddress(char    index,
-  //                     String& address);
-
-  opResult BLEScan(int timeout);
-  opResult musicCommands(audioCmds command);
-
-  // opResult addressQuery(String& address);
-  opResult setClassicSink(void);
-  opResult setClassicSource(void);
-
-  String stdGetParam(String command);
+  // Command helpers
+  String   stdGetParam(String command);
   opResult stdSetParam(String command,
                        String param);
   opResult stdCmd(String command);
+  String   convertCommandResultToString(int result);
+  opResult evaluateError(String errorCode);
 
-  String connectionState(void);
+  // Get commands
+  String   getName(void);
+  String   getNameShort(void);
+  String   getGPIOConfig(void);
+  String   getUARTConfig(void);
+  String   getBLEConfig(void);
 
-  bool factorySettings(String name);
+  // Standard commands
+  opResult enableConnectableAndDiscoverable(void);
+  opResult resetPIO4(void);
+  opResult write(void);
+  opResult reset(void);
+  opResult restore(void);
+  opResult status(void);
+
+  // Set commands
+  opResult setVolConfig(void);
+  opResult setCodType(void);
+  opResult enableGPIOControl(void);
+  opResult disableGPIOControl(void);
+  opResult enableAutoData(bool shouldReboot);
+  opResult disableAutoData(bool shouldReboot); // TODO: combine this logic
+  opResult enableAutoConn(bool shouldReboot);
+  opResult disableAutoConn(bool shouldReboot);
+  opResult enableHDAudio(void);
+  opResult disableAdvertisingOnStartup(void);
+  opResult enableBLEAdvertising(void);
+  opResult disableiOSBatteryIndicator(void);
+  opResult disableAdvertising(void);
+  opResult setName(String name,
+                   bool   shouldReboot);
+  opResult setShortName(String name,
+                        bool   shouldReboot);
+  opResult setMaxNumOfReconnectionAttempts(int  maxNum,
+                                           bool shouldReboot);
+  opResult setUARTConfig(void);
 
 private:
-  BC127() {}
+
+  String _deviceName = BC127_NAME;
+
+  bool _inDataMode = true; // Start as true since immediately set to false in
+                           // enable()
+
+  uint16_t _cmdTo = DEFAULT_CMD_TO_VALUE * 20;
+  String _codType = DEFAULT_COD_TYPE;
+
+  int _connectionIndicatorPin = DEFAULT_CONNECTION_INDICATOR_PIN;
+  int _eventBitmaskPin        = DEFAULT_EVENT_BITMASK_PIN;
+  int _commandPin             = DEFAULT_COMMAND_PIN;
 
   USARTSerial *_serialPort = DEFAULT_SERIAL_PORT;
-  int _serialBaud = DEFAULT_SERIAL_BAUD_RATE;
-
-  int _commandPin = 3;
-  int _gpioZero = 1;
-  String _deviceName = "BC127";
+  int _serialBaud          = DEFAULT_SERIAL_BAUD_RATE;
 };
