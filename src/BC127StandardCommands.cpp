@@ -2,39 +2,24 @@
 
 BC127::opResult BC127::enableConnectableAndDiscoverable()
 {
-  static opResult result = stdCmd("BT_STATE ON ON");
-
-#if DEBUG_BC127
-  Serial.print("BC127 | CMD BT_STATE ON ON..." + convertCommandResultToString(result) + "\r");
-#endif
-  return result;
+  return stdCmd("BT_STATE ON ON");
 }
 
 BC127::opResult BC127::resetPIO4()
 {
-  static opResult result = stdCmd("PIO 4 OFF");
-
-#if DEBUG_BC127
-  Serial.print("BC127 | CMD PIO 4 OFF..." + convertCommandResultToString(result) + "\r");
-#endif
-  return result;
+  return stdCmd("PIO 4 OFF");
 }
 
 BC127::opResult BC127::write()
 {
-  static opResult result = stdCmd("WRITE");
-
-#if DEBUG_BC127
-  Serial.println("BC127 | CMD WRITE..." + convertCommandResultToString(result));
-#endif
-  return result;
+  return stdCmd("WRITE");
 }
 
 BC127::opResult BC127::status()
 {
+  static unsigned long startingMillis;
+  static String EOL = "OK\r";
   static String buffer;
-  static String EOL = String("OK\r");
-
   buffer = "";
 
   enterCommandMode();
@@ -42,36 +27,41 @@ BC127::opResult BC127::status()
   _serialPort->print("STATUS\r");
   _serialPort->flush();
 
-  static unsigned long startingMillis = millis();
-
+  startingMillis = millis();
   while (!_serialPort->available())
   {
     Particle.process();
 
     if (millis() - startingMillis > COMMAND_TIMEOUT_DELAY)
     {
-      exitCommandMode();
+      enterDataMode();
       return TIMEOUT_ERROR;
     }
   }
+
   startingMillis = millis();
-
-  buffer.concat(char(_serialPort->read()));
-
   while (!buffer.endsWith(EOL))
   {
+    if (_serialPort->available())
+    {
+      buffer.concat(char(_serialPort->read()));
+      startingMillis = millis();
+    }
+
+    if (buffer.startsWith("ER"))
+    {
+      static opResult error = evaluateError(buffer);
+      buffer = "";
+      enterDataMode();
+      return error;
+    }
+
     Particle.process();
 
     if (millis() - startingMillis > COMMAND_TIMEOUT_DELAY)
     {
-      exitCommandMode();
+      enterDataMode();
       return TIMEOUT_ERROR;
-    }
-
-    if (_serialPort->available())
-    {
-      startingMillis = millis();
-      buffer.concat(char(_serialPort->read()));
     }
   }
 
@@ -81,21 +71,14 @@ BC127::opResult BC127::status()
     Serial.println(buffer);
 #endif
     buffer = "";
-    exitCommandMode();
+    enterDataMode();
     return SUCCESS;
   }
 
-  if (buffer.startsWith("ER"))
-  {
-    static opResult error = evaluateError(buffer.substring(6));
-    buffer = "";
-    exitCommandMode();
-    return error;
-  }
 #ifdef DEBUG_BC127
   Serial.println("Error: " + buffer);
 #endif
   buffer = "";
-  exitCommandMode();
+  enterDataMode();
   return MODULE_ERROR;
 }
