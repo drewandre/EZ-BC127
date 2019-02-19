@@ -83,15 +83,11 @@ public:
 
   ~BC127();
 
-  void handleBC127Serial(String command)
-  {
-    funct(command);
-  };
-
   void enable();
   void runTask();
 
   void listenAndHandleSPPData();
+  void sendDataToCentral(String data);
 
   // Command helpers
   String stdGetParam(String command);
@@ -99,6 +95,8 @@ public:
                        String param,
                        bool shouldRestart);
   opResult stdCmd(String command);
+  String splitString(String data, char separator, int index);
+  String convertCommandResultToString(int result);
 
   // Get commands
   String getName();
@@ -167,7 +165,6 @@ private:
   opResult write();
 
   opResult evaluateError(String errorCode);
-  String convertCommandResultToString(int result);
 
   String handleConnectionEvent();
 };
