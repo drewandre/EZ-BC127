@@ -1,4 +1,4 @@
-# EZ-BC127 (UNDER DEVELOPMENT)
+# EZ-BC127
 
 An Arduino library for controlling the [BC127](https://www.sierrawireless.com/products-and-solutions/embedded-solutions/products/bc127/) dual-mode Bluetooth Classic and Bluetooth Low Energy (BLE) module running the latest Melody 7.x firmware.
 
